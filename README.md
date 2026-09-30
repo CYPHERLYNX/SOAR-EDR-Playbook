@@ -57,46 +57,8 @@ This rule detects common signs of Lazagne execution by checking file paths, comm
 - If you have legitimate tools with similar names, add allowlist entries by file path, signer, or hash.
 - Adjust alert level to `high` if runbook dictates aggressive response for credential-related detections.
 
-## YAML code 
-events:
-  - NEW PROCESS
-  - EXISTING PROCESS
-op: and
-rules:
-  - op: is
-    platform: windows
-  - op: or
-    rules:
-      - case sensitive: false
-        op: ends with
-        path: event/FILE_PATH
-        value: lazagne.exe
-      - case sensitive: false
-        op: ends with
-        path: event/COMMAND_LINE
-        value: .\lazagne
-      - case sensitive: false
-        op: contains
-        path: event/COMMAND_LINE
-        value: lazagne
-      - case sensitive: false
-        op: is
-        path: event/HASH
-        value: '467e4f9f1795c1b08245ae621c59cdf6df630ef1631dc0859da9a82285a846'
+## Rule file
 
-respond:
-  - action: report
-    metadata:
-      author: my edr
-      description: Detects Lazagne (SOAR EDR Tool)
-      from_view: false
-      falsepositives:
-        - Unlikely
-      level: medium
-      tags:
-        - attack.credential_access
-      name: myydfir-hacktool-lazagne (kiko)
-
-
+The detection rule lives in [`rules/lazagne_detection_rule.yaml`](rules/lazagne_detection_rule.yaml) — copy that file into your EDR/SOAR rules directory to deploy it.
 
 [SOAR EDR PROJECT1.docx](https://github.com/user-attachments/files/22878609/SOAR.EDR.PROJECT1.docx)
