@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ctxverify"
+version = "0.1.0"
+description = "Docs-vs-code verifier for agent-facing documentation (CLAUDE.md, AGENTS.md, docs/)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "X0D4N" }]
+keywords = ["documentation", "agents", "ai", "lint", "ci"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Topic :: Documentation",
+    "Topic :: Software Development :: Quality Assurance",
+]
+
+[project.scripts]
+ctxverify = "ctxverify.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/CYPHERLYNX/ctxverify"
+
+[tool.setuptools.packages.find]
+include = ["ctxverify*"]

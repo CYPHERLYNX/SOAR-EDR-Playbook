@@ -1,64 +1,101 @@
-# SOAR-EDR-Playbook
-A cybersecurity project integrating SOAR (Tines) and EDR (LimaCharlie) for automated incident response.  
+# ctxverify
 
+**Your AI coding agent reads your docs. ctxverify checks whether they're lying.**
 
+`CLAUDE.md`, `AGENTS.md`, and `docs/` are the instruction set your agent boots from — but they rot. They reference deleted files, phantom functions, and architectures refactored months ago, so every agent run starts from confidently wrong premises. ctxverify is a deterministic, dependency-free CLI that cross-checks agent-facing docs against the actual codebase and fails CI when docs lie. No LLM, no API key. <!-- ctxverify: ignore -->
 
-# Lazagne Detection Rule
+## The five checks
 
-**Filename:** `lazagne_detection_rule.yaml`  
-**Purpose:** Detect execution or presence of the Lazagne password recovery tool on Windows endpoints.
+| Check | What it does | Verdict |
+|---|---|---|
+| `dead-refs` | Extracts file paths from docs (markdown links, `` `backticked` `` paths, quoted paths) and verifies each exists | ERROR | <!-- ctxverify: ignore -->
+| `symbols` | Extracts `` `function()` `` / `` `ClassName` `` / `` `module.symbol` `` mentions; verifies via AST over Python source, grep fallback otherwise | ERROR if confirmed missing in Python; WARN if unverifiable |
+| `staleness` | `git log` recency for referenced files; flags files untouched longer than `--stale-days` (default 180) | WARN |
+| `manifest` | Compares explicit claims ("requires Python 3.12", "uses Postgres", "uses Docker") against `pyproject.toml` / `package.json` / `requirements*.txt` | ERROR | <!-- ctxverify: ignore -->
+| `commands` | Extracts commands from docs (`pytest tests/`, `` `npm test` ``); verifies referenced paths exist and runner binaries are on PATH | ERROR for missing paths; WARN for missing binaries |
 
-## Description
-This rule detects common signs of Lazagne execution by checking file paths, command-line indicators, and a known file hash. Lazagne is often used by red teamers and malicious actors to extract stored credentials from Windows machines. The rule is intended for use in SOAR/EDR rule collections to alert on potential credential access activity.
+## Installation
 
-## Detection Logic
-- Triggers on new or existing process events.
-- Targets Windows platform processes.
-- Matches if:
-  - `FILE_PATH` ends with `lazagne.exe`, OR
-  - `COMMAND_LINE` ends with or contains `lazagne`, OR
-  - `event/HASH` equals the known hash value included in the rule.
+```bash
+pip install ctxverify
+# or run from source:
+python3 -m ctxverify
+```
 
-## Recommended Response
-- Default action: `report` (generate an alert).
-- Suggested alert level: `medium`.
-- Suggested tags: `attack.credential_access`.
+Requires Python 3.10+. Standard library only — zero dependencies.
 
-## False Positives
-- **Unlikely** in most environments, but possible if legitimate tools or developer binaries are named `lazagne` (rare).
-- If you maintain a benign tool with this name, whitelist its known paths/hashes.
+## Usage
 
-## Testing
-1. Place `lazagne_detection_rule.yaml` in your rules directory (e.g., `rules/credential_access/`).
-2. Reload or deploy detection rules to your EDR/SOAR platform.
-3. Test with a benign sample:
-   - Run `lazagne.exe` in a controlled lab VM that mimics production.
-   - Execute a command that includes the string `lazagne` in the command line.
-   - Verify that an alert is generated and contains expected metadata.
-4. Test hash match:
-   - Create a file with the detection hash (only for lab/testing) and run it to ensure the hash detection fires.
-5. Validate no alerts from unrelated tools by running common admin tools and confirming the rule remains silent.
+```bash
+# Scan the current repo
+ctxverify
 
-## Mitigation / Analyst Playbook
-1. Triage the alert: confirm host and user context, start/stop time, and parent process.
-2. Isolate host if malicious activity is suspected.
-3. Collect forensic artifacts:
-   - Process list, command line, and parent process.
-   - Memory dump / process dump of `lazagne.exe`.
-   - Network connections from the host during the event.
-4. Rotate/verify credentials for impacted users.
-5. Perform a scoped hunt for similar indicators across the environment.
+# Scan another repo, custom docs, JSON output
+ctxverify /path/to/repo --docs CLAUDE.md docs/ --json
 
-## Mapping
-- **MITRE ATT&CK:** `Credential Access` (e.g., credential dumping / password extraction)
+# Write a Markdown report (CI artifacts)
+ctxverify --report ctxverify-report.md
+```
 
-## Notes & Customization
-- Replace or add hashes specific to your threat intelligence feeds.
-- If you have legitimate tools with similar names, add allowlist entries by file path, signer, or hash.
-- Adjust alert level to `high` if runbook dictates aggressive response for credential-related detections.
+Exit codes are CI-gatable: `0` clean, `1` warnings only, `2` errors.
 
-## Rule file
+### Options
 
-The detection rule lives in [`rules/lazagne_detection_rule.yaml`](rules/lazagne_detection_rule.yaml) — copy that file into your EDR/SOAR rules directory to deploy it.
+| Flag | Default | Meaning |
+|---|---|---|
+| `--docs PATH...` | `CLAUDE.md AGENTS.md README.md docs/ .claude/` | Doc files, dirs, or globs to check |
+| `--exclude DIR...` | — | Extra dir names to skip in code scans |
+| `--stale-days N` | `180` | Staleness threshold in days |
+| `--json` | — | Print findings as JSON |
+| `--report FILE` | — | Write a Markdown report to FILE |
 
-[SOAR EDR PROJECT1.docx](https://github.com/user-attachments/files/22878609/SOAR.EDR.PROJECT1.docx)
+### CI example (GitHub Actions)
+
+```yaml
+- name: Verify agent docs
+  run: |
+    pip install ctxverify
+    ctxverify --stale-days 180
+```
+
+## Example output
+
+``` <!-- ctxverify: ignore -->
+ctxverify: myrepo <!-- ctxverify: ignore -->
+ <!-- ctxverify: ignore -->
+[dead-refs] <!-- ctxverify: ignore -->
+  CLAUDE.md:12 [ERROR] dead file reference: `src/legacy/auth.py` does not exist <!-- ctxverify: ignore -->
+[symbols] <!-- ctxverify: ignore -->
+  CLAUDE.md:18 [ERROR] phantom symbol: `migrate_all()` is not defined in the Python codebase <!-- ctxverify: ignore -->
+[staleness] <!-- ctxverify: ignore -->
+  CLAUDE.md:24 [WARN] stale reference: `src/billing.py` untouched for 214 days (threshold 180) <!-- ctxverify: ignore -->
+[manifest] <!-- ctxverify: ignore -->
+  README.md:6 [ERROR] contradiction: docs require Python 3.12+ but pyproject allows >=3.10 <!-- ctxverify: ignore -->
+ <!-- ctxverify: ignore -->
+Summary: 3 errors, 1 warnings -> FAIL <!-- ctxverify: ignore -->
+```
+
+## Ignoring lines
+
+Docs about tooling (like this README) legitimately mention files and symbols
+that don't exist in the repo. Add `<!-- ctxverify: ignore -->` anywhere on a
+line to skip all checks for that line:
+
+```markdown
+See `src/legacy/auth.py` for the historical design. <!-- ctxverify: ignore -->
+```
+
+## Limitations (honest)
+
+- **Symbol extraction is heuristic for non-Python code.** Python repos get full AST verification; other languages fall back to textual search (`def name`, `class name`, ...), and unfound symbols are reported as WARN/unverifiable rather than missing — the tool will not claim a symbol is phantom when it cannot prove it.
+- **Manifest claims must be explicit.** The tool matches patterns like "requires Python 3.12" or "uses Postgres"; vague prose ("we like new Pythons") is ignored rather than guessed at. <!-- ctxverify: ignore -->
+- **Staleness needs git history** and uses the last-commit date of referenced files — a stable, finished file can look "stale" even when the docs are accurate. Treat STALE as a nudge to re-read, not proof of rot.
+- Path extraction is conservative: only markdown links, backticked, and quoted paths are considered, so some mentions will be missed rather than misreported. <!-- ctxverify: ignore -->
+
+## Why not an LLM?
+
+An LLM re-reading your docs can absolutely find rot — but it costs tokens on every CI run, needs an API key in your pipeline, and is non-deterministic. ctxverify is the cheap deterministic gate: run it on every PR, and save the LLM for judgment calls.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
